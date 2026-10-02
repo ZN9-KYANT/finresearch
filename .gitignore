@@ -1,0 +1,17 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+venv/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.env
+*.pem
+*.bak
+.cache/
+src/finresearch.egg-info/

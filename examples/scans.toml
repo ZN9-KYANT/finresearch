@@ -1,0 +1,100 @@
+# finresearch named scan templates — copy sections into ~/.config/finresearch/scans.toml
+# Docs + what each template CANNOT check: examples/README.md in the repo.
+# Run: finresearch scan <name>   ·  List: finresearch scan   ·  Override: append CLI flags
+
+[qullamaggie-proxy]
+description = "Momentum leaders: big 52w move, liquid, still moving — proxy (no RS%/MA-stack server-side)"
+price = [5.0, 2000.0]
+mktcap = [1000000000.0, 1e15]
+avgvol-min = 500000
+perf-52w-min = 50.0
+day-chg-min = 0.0
+sort = "day-chg"
+limit = 50
+
+# Cannot check: EMA10>SMA20>SMA50 stack, consolidation tightness, RS >= 97th pctile.
+# Chart-review the output for VCP/flag quality before acting.
+
+[minervini-trend]
+description = "Stage-2 trend template approximation: near 52w high, 30%+ off lows, liquid"
+price = [5.0, 2000.0]
+mktcap = [1000000000.0, 1e15]
+avgvol-min = 100000
+within-high = 0.25
+off-low = 0.3
+sort = "mktcap"
+limit = 250
+
+# Cannot check: SMA150/200 stack + rising 200-day, RS >= 70-90.
+# Post-filters here are client-side (52w distance isn't server-queryable) —
+# a tight band can drop rows the --limit page never carried; the CLI reports drops.
+
+[canslim-proxy]
+description = "O'Neil-ish: EPS growth 25%+, ROE 15%+, institutional sponsorship, near highs"
+price = [10.0, 2000.0]
+mktcap = [1000000000.0, 1e15]
+avgvol-min = 100000
+epsgrowth-min = 25.0
+revgrowth-min = 10.0
+roe-min = 15.0
+inst-held-max = 90.0
+within-high = 0.15
+sort = "mktcap"
+limit = 100
+
+# Cannot check: quarterly EPS acceleration, 3-5y EPS CAGR, RS line new highs,
+# market-regime gate (M). Finviz-limited proxy style; chart bases manually.
+
+[quality-dip]
+description = "Quality-on-sale: sound business down 20-50% from its high, high beta, not broken"
+price = [5.0, 2000.0]
+mktcap = [2000000000.0, 1e15]
+avgvol-min = 500000
+below-high = 0.2
+within-high = 0.5
+off-low = 0.1
+beta-min = 1.1
+roe-min = 15.0
+grossmargin-min = 40.0
+debteq-max = 1.5
+quickratio-min = 1.2
+sort = "mktcap"
+limit = 250
+
+# The 20-50% dip band = below-high 0.2 + within-high 0.5 (client-side).
+# Cannot check: forward estimate revisions (THE key filter — do it manually
+# per name: estimates flat/rising while price fell = thesis OK), ROIC, F-Score,
+# rel-drawdown tiers vs SPY/QQQ. Altman Z skip for financials is manual too.
+
+[stockbee-daily-movers]
+description = "Daily movers with real volume — range-expansion candidate pool"
+price = [5.0, 2000.0]
+avgvol-min = 500000
+day-chg-min = 4.0
+volume-min = 1000000
+sort = "day-chg"
+limit = 50
+
+# Weekly variant: raise day-chg-min to 0 and sort by perf-52w; the 20% weekly
+# list needs a perf field the API doesn't expose — combine perf-52w-min instead.
+
+[highest-volume-close]
+description = "Heaviest-volume names vs a real liquidity floor"
+price = [5.0, 2000.0]
+avgvol-min = 500000
+volume-min = 5000000
+sort = "volume"
+limit = 30
+
+[jp-quality]
+description = "Quality framework, Japan region (thresholds in listed-JPY terms)"
+region = "jp"
+mktcap = [3e11, 1e15]
+avgvol-min = 500000
+roe-min = 10.0
+debteq-max = 2.0
+quickratio-min = 1.2
+sort = "mktcap"
+limit = 50
+
+# Dip-band/52w post-filters apply to JP rows too (fractions, currency-free).

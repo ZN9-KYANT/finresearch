@@ -1,0 +1,7 @@
+---
+description: finresearch agent guidance (canonical source: AGENTS.md)
+alwaysApply: true
+---
+Read and follow AGENTS.md at the repository root: project overview, setup and
+verify commands, architecture map, unit contracts (percent-coded scan filters,
+currency threading, EDGAR UA rule), commit conventions, and known weak spots.
