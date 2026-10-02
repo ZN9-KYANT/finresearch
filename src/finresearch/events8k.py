@@ -8,12 +8,12 @@ changes, 7.01 Reg FD, 8.01 other events. Also surfaces the earnings-release item
 "company just reported" events.
 """
 
-import json
 import re
 
 from .edgar_common import fetch_doc_text, list_filings
 from .formatting import print_table
-from .sec_edgar import resolve_cik
+from .output import emit_json
+from .sec_edgar import resolve_ciks
 
 ITEM_MEANING = {  # Form 8-K item numbers (SEC General Instructions)
     "101": "material agreement", "102": "agreement terminated",
@@ -53,10 +53,7 @@ def scan_8k(tickers, days=60):
     column (no per-filing request); the document is only fetched and grepped
     when that column is empty (very old filings)."""
     out = []
-    for ticker in tickers:
-        cik10 = resolve_cik(ticker)
-        if not cik10:
-            continue
+    for ticker, cik10 in resolve_ciks(tickers):
         for f in list_filings(cik10, ["8-K"], days=days):
             items = sorted({i.strip() for i in f["items"].split(",") if i.strip()})
             if not items and f["primary_doc"]:
@@ -83,7 +80,7 @@ def cmd_8k(args):
     if want:
         rows = [r for r in rows if want & set(r["items"])]
     if args.json:
-        print(json.dumps(rows, indent=2, default=str))
+        emit_json(rows)
         return
     if not rows:
         print("No 8-K filings in the period (or none matching --has filter).")

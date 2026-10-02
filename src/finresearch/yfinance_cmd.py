@@ -8,7 +8,6 @@ Currency contract (verified live, e.g. TSM = USD-listed ADR of a TWD reporter):
 For most listings the two are the same; for ADRs they are not.
 """
 
-import json
 import time
 
 import numpy as np
@@ -16,6 +15,7 @@ import pandas as pd
 import yfinance as yf
 
 from .formatting import fmt_date, fmt_num, fmt_pct, print_table
+from .output import emit_json, fail
 
 
 def get_ticker(ticker_symbol):
@@ -241,11 +241,18 @@ def _holders(df, n, with_position):
 
 # ------------------------------------------------------------------ command
 
+def _has_quote(info):
+    """Yahoo answers unknown symbols with a near-empty info dict (no quoteType)."""
+    return bool(info) and "quoteType" in info
+
+
 def cmd_ticker(args):
     """Main ticker command."""
     ticker_symbol = args.ticker.upper()
     t = get_ticker(ticker_symbol)
     info = t.info
+    if not _has_quote(info):
+        fail(f"no Yahoo Finance quote for {ticker_symbol}")
     cur = info.get("currency") or "USD"
     fin_cur = info.get("financialCurrency") or cur
     section = args.section or "overview"
@@ -429,43 +436,64 @@ def _ticker_json(t, ticker_symbol, info, section, want):
         if tech:
             result["technicals"] = tech
 
-    print(json.dumps(result, indent=2, default=str))
+    emit_json(result)
+
+
+# compare columns: (json key, info key, header, kind)
+COMPARE_FIELDS = [
+    ("price", "currentPrice", "Price", "cur"),
+    ("market_cap", "marketCap", "Mkt Cap", "cur"),
+    ("pe_ttm", "trailingPE", "P/E", "x1"),
+    ("pe_fwd", "forwardPE", "Fwd P/E", "x1"),
+    ("profit_margin", "profitMargins", "Margin", "pct"),
+    ("revenue", "totalRevenue", "Revenue", "fin"),
+    ("ebitda", "ebitda", "EBITDA", "fin"),
+    ("free_cashflow", "freeCashflow", "FCF", "fin"),
+    ("num_analysts", "numberOfAnalystOpinions", "# Analysts", "int"),
+    ("target_mean", "targetMeanPrice", "Target", "cur"),
+]
 
 
 def cmd_compare(args):
     """Compare key metrics across multiple tickers."""
     tickers = [t.upper() for t in args.tickers]
-    print("\n# Multi-Ticker Comparison\n")
-
-    rows = []
+    records = []
     for i, ticker_symbol in enumerate(tickers):
         try:
             info = yf.Ticker(ticker_symbol).info
+            if not _has_quote(info):
+                raise LookupError("no Yahoo Finance quote")
             cur = info.get("currency") or "USD"
-            fin_cur = info.get("financialCurrency") or cur
-            rows.append([
-                ticker_symbol,
-                (info.get("shortName") or "N/A")[:25],
-                _fmt("cur", info.get("currentPrice"), cur, fin_cur),
-                _fmt("cur", info.get("marketCap"), cur, fin_cur),
-                _fmt("x1", info.get("trailingPE"), cur, fin_cur),
-                _fmt("x1", info.get("forwardPE"), cur, fin_cur),
-                _fmt("pct", info.get("profitMargins"), cur, fin_cur),
-                _fmt("fin", info.get("totalRevenue"), cur, fin_cur),
-                _fmt("fin", info.get("ebitda"), cur, fin_cur),
-                _fmt("fin", info.get("freeCashflow"), cur, fin_cur),
-                _fmt("int", info.get("numberOfAnalystOpinions"), cur, fin_cur),
-                _fmt("cur", info.get("targetMeanPrice"), cur, fin_cur),
-            ])
+            records.append({
+                "ticker": ticker_symbol,
+                "name": info.get("shortName"),
+                "currency": cur,
+                "financial_currency": info.get("financialCurrency") or cur,
+                **{jk: _safe(info.get(ik)) for jk, ik, _h, _k in COMPARE_FIELDS},
+            })
         except Exception as e:
-            rows.append([ticker_symbol, "ERROR", str(e)[:30]] + [""] * 9)
+            records.append({"ticker": ticker_symbol, "error": str(e)})
         if i < len(tickers) - 1:
             time.sleep(0.5)  # be gentle with Yahoo
 
-    print_table(
-        ["Ticker", "Name", "Price", "Mkt Cap", "P/E", "Fwd P/E", "Margin", "Revenue", "EBITDA", "FCF", "# Analysts", "Target"],
-        rows, title="Comparison"
-    )
+    if records and all("error" in r for r in records):
+        fail("no data for any ticker: " + "; ".join(f"{r['ticker']}: {r['error']}"
+                                                     for r in records))
+    if getattr(args, "json", False):
+        emit_json(records)
+        return
+
+    rows = []
+    for r in records:
+        if "error" in r:
+            rows.append([r["ticker"], "ERROR", r["error"][:30]] + [""] * (len(COMPARE_FIELDS) - 1))
+            continue
+        rows.append([r["ticker"], (r["name"] or "N/A")[:25]] +
+                    [_fmt(kind, r[jk], r["currency"], r["financial_currency"])
+                     for jk, _ik, _h, kind in COMPARE_FIELDS])
+    print("\n# Multi-Ticker Comparison\n")
+    print_table(["Ticker", "Name"] + [h for _jk, _ik, h, _k in COMPARE_FIELDS], rows,
+                title="Comparison")
     print("\nPrice/cap/target in listing currency; revenue/EBITDA/FCF in each "
           "company's reporting currency.")
 

@@ -16,6 +16,7 @@ import yfinance as yf
 
 from .config import load_watchlist
 from .formatting import fmt_num, fmt_pct, print_table
+from .output import fail
 
 
 def _safe_float(val):
@@ -36,6 +37,9 @@ def _fetch_ticker_data(ticker_symbol):
     try:
         t = yf.Ticker(ticker_symbol)
         info = t.info
+        if not info or "quoteType" not in info:
+            return {"ticker": ticker_symbol, "name": "ERROR: no Yahoo Finance quote",
+                    "error": "no Yahoo Finance quote"}
         return {
             "ticker": ticker_symbol,
             "name": info.get("shortName", "N/A"),
@@ -133,6 +137,9 @@ def cmd_screen(args):
     passing = [r for r in results if r.get("_passes")]
     failing = [r for r in results if not r.get("_passes") and "error" not in r]
     errored = [r for r in results if "error" in r]
+    if results and len(errored) == len(results):
+        fail("no data for any ticker: " + "; ".join(f"{r['ticker']}: {r['error'][:60]}"
+                                                     for r in errored))
 
     # Sort
     sort_field = args.sort if args.sort else "market_cap"
@@ -159,7 +166,8 @@ def cmd_screen(args):
                 "tickers": tickers,
                 "filters": {
                     k: v for k, v in vars(args).items()
-                    if v is not None and k not in ("tickers", "json", "sort", "ascending", "watchlist")
+                    if v is not None and k not in ("command", "tickers", "json", "sort",
+                                                   "ascending", "watchlist", "quiet")
                 },
                 "sort": sort_field,
             },

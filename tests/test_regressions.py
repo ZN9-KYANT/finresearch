@@ -55,7 +55,7 @@ class TestEdgarCommon:
 
 class TestEvents8kItems:
     def test_items_come_from_submissions_not_documents(self, monkeypatch):
-        monkeypatch.setattr(events8k, "resolve_cik", lambda t: "0000000001")
+        monkeypatch.setattr(events8k, "resolve_ciks", lambda ts: [(t, "0000000001") for t in ts])
         monkeypatch.setattr(events8k, "list_filings", lambda cik, forms, days: [
             {"form": "8-K", "filing_date": "2099-01-01", "accession": "a1",
              "primary_doc": "d.htm", "items": "9.01,2.02"}])
@@ -67,7 +67,7 @@ class TestEvents8kItems:
         assert rows[0]["items"] == ["2.02", "9.01"]
 
     def test_empty_items_fall_back_to_document_grep(self, monkeypatch):
-        monkeypatch.setattr(events8k, "resolve_cik", lambda t: "0000000001")
+        monkeypatch.setattr(events8k, "resolve_ciks", lambda ts: [(t, "0000000001") for t in ts])
         monkeypatch.setattr(events8k, "list_filings", lambda cik, forms, days: [
             {"form": "8-K", "filing_date": "2001-01-01", "accession": "a1",
              "primary_doc": "d.htm", "items": ""}])
@@ -231,3 +231,28 @@ class TestJsonStdoutIsPure:
         out = capsys.readouterr()
         assert json.loads(out.out)["filed"] == "2099-01-01"
         assert "Fetching" in out.err
+
+
+class TestGoogleFinanceParsing:
+    PAGE = ('<html><head><title>Apple Inc (AAPL) Stock Price &amp; News - Google Finance'
+            '</title></head><body><div>Dow <span jsname="Pdsbrc"><span>$1,032.00</span></span>'
+            '</div><div>Current <span jsname="Pdsbrc" class=""><span>$330.32</span></span>'
+            '</div></body></html>')
+
+    def test_name_from_title_and_price_from_current_label(self):
+        from finresearch.news import _parse_price_info
+        assert _parse_price_info(self.PAGE) == {"name": "Apple Inc", "price": 330.32}
+
+    def test_unknown_symbol_page_is_rejected(self, monkeypatch):
+        from finresearch import news
+        generic = SimpleNamespace(status_code=200,
+                                  text="<title>Google Finance</title><body>search</body>")
+        monkeypatch.setattr(news.requests, "get", lambda *a, **k: generic)
+        monkeypatch.setattr(news.time, "sleep", lambda s: None)
+        assert news.fetch_quote_page("ZZZZ") == (None, None)
+
+    def test_real_quote_page_accepted(self, monkeypatch):
+        from finresearch import news
+        page = SimpleNamespace(status_code=200, text=self.PAGE)
+        monkeypatch.setattr(news.requests, "get", lambda *a, **k: page)
+        assert news.fetch_quote_page("AAPL", "NASDAQ") == ("NASDAQ", self.PAGE)

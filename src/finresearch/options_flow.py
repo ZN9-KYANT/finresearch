@@ -12,6 +12,7 @@ import json
 import yfinance as yf
 
 from .formatting import fmt_shares, print_table
+from .output import emit_json
 
 
 def _safe(v):
@@ -95,7 +96,10 @@ def cmd_options(args):
     """finresearch options <TICKER> [--vol-oi 1.0] — unusual activity + ratios."""
     snap = chains_snapshot(args.ticker, max_expiry=args.expiries)
     if not snap or not snap["rows"]:
-        print(f"No option chains available for {args.ticker} (not an optionable listing?).")
+        if args.json:
+            emit_json({"ticker": args.ticker, "expiries": [], "totals": [], "unusual": []})
+        else:
+            print(f"No option chains available for {args.ticker} (not an optionable listing?).")
         return
     if args.json:
         print(json.dumps({

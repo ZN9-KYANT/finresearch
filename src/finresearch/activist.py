@@ -7,12 +7,12 @@ submissions feed lists both sides: form "SC 13D*" rows are OWNERSHIP filings
 'files' backfill — the module reports the API window it can see and says so).
 """
 
-import json
 import re
 
 from .edgar_common import fetch_doc_text, list_filings
 from .formatting import print_table
-from .sec_edgar import resolve_cik
+from .output import emit_json
+from .sec_edgar import resolve_ciks
 
 SUBJECT_HINTS = ("SUBJECT COMPANY", "NAME OF ISSUER")
 
@@ -56,10 +56,7 @@ def activation_flag(text):
 def scan_activist(tickers, days=400):
     """Rows: [{ticker, form, filed, filer, flag, accession}] newest first."""
     out = []
-    for ticker in tickers:
-        cik10 = resolve_cik(ticker)
-        if not cik10:
-            continue
+    for ticker, cik10 in resolve_ciks(tickers):
         # form names vary by era: 'SC 13D/A' vs 'SCHEDULE 13D/A'
         filings = list_filings(cik10, [], regex=r"13[DG]", days=days)
         for f in filings:
@@ -86,7 +83,7 @@ def cmd_activist(args):
     tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
     rows = scan_activist(tickers, days=args.days)
     if args.json:
-        print(json.dumps(rows, indent=2, default=str))
+        emit_json(rows)
         return
     if not rows:
         print("No SC 13D/G filings in the period.")

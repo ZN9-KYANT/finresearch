@@ -15,8 +15,6 @@ Transaction codes (SEC Form 4 Table I):
 Only P and S are treated as open-market signals; everything else is context.
 """
 
-import json
-import sys
 import xml.etree.ElementTree as ET
 
 from .config import load_watchlist
@@ -30,6 +28,7 @@ from .edgar_common import (
     to_float,
 )
 from .formatting import fmt_num, fmt_shares, print_table
+from .output import emit_json, fail, warn
 from .sec_edgar import find_cik
 
 CODE_LEGEND = {
@@ -150,7 +149,9 @@ def resolve_tickers(tickers):
         if cik:
             resolved.append((t.upper(), cik, title))
         else:
-            print(f"  [skip] {t}: no CIK mapping found", file=sys.stderr)
+            warn(f"  [skip] {t}: no SEC CIK mapping found")
+    if tickers and not resolved:
+        fail(f"no SEC CIK found for: {', '.join(tickers)}")
     return resolved
 
 
@@ -267,8 +268,7 @@ def cmd_insider(args):
         ticker = args.ticker.upper()
         cik, title = find_cik(ticker)
         if not cik:
-            print(f"Unknown ticker: {ticker}")
-            return
+            fail(f"ticker {ticker} not found in SEC EDGAR")
         filings = list_form4_filings(cik, args.days)
         records = []
         for f in filings:
@@ -277,7 +277,7 @@ def cmd_insider(args):
                 records.append(rec)
         if args.json:
             out = {"ticker": ticker, "company": title, "filings": records}
-            print(json.dumps(out, indent=2, default=str))
+            emit_json(out)
         else:
             print(f"=== {ticker} — {title} — Form 4 filings, last {args.days} days ===")
             _print_detail(ticker, records)
@@ -290,7 +290,7 @@ def cmd_insider(args):
         tickers = load_watchlist()
     results = scan_tickers(tickers, args.days, args.min_value)
     if args.json:
-        print(json.dumps(results, indent=2, default=str))
+        emit_json(results)
     else:
         _print_scan(results)
 

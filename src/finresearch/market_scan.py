@@ -17,6 +17,7 @@ import sys
 
 from .config import config_dir
 from .formatting import fmt_num, fmt_pct, print_table
+from .output import emit_json, fail
 
 # user filter name -> (EquityQuery field, unit kind)
 # unit kinds: 'price' (raw), 'percent' (field is %), 'raw'
@@ -366,38 +367,52 @@ def _row_from_quote(qt):
     ]
 
 
+def _template_summary(scans):
+    """{name: {description, valid, config}} for listing saved templates."""
+    out = {}
+    for name, tpl in scans.items():
+        try:
+            validate_template(name, tpl)
+            valid = True
+        except ValueError:
+            valid = False
+        out[name] = {"description": tpl.get("description"), "valid": valid,
+                     "config": {k: v for k, v in tpl.items() if k != "description"}}
+    return out
+
+
 def cmd_market_scan(args):
     """finresearch scan — discover stocks across the whole market by filters."""
+    as_json = getattr(args, "json", False)
     # template mode: config-first, CLI flags override
     if getattr(args, "name", None):
         scans = load_scans()
         if args.name not in scans and not getattr(args, "save", False):
             known = ", ".join(sorted(scans)) or "none saved yet"
-            print(f"No scan template '{args.name}' (saved: {known}).")
-            print(f"Create it: finresearch scan {args.name} --price 5 100 --save --desc '...'")
-            return
+            fail(f"no scan template '{args.name}' (saved: {known}). Create it: "
+                 f"finresearch scan {args.name} --price 5 100 --save --desc '...'")
         if args.name in scans:
             try:
                 apply_template(args, scans[args.name])
             except ValueError as e:
-                print(str(e))
-                return
+                fail(str(e))
     # --save [NAME]: snapshot the EFFECTIVE query (template + CLI overrides);
     # `scan A --save` updates A, `scan A --save B` derives B from A
     if getattr(args, "save", False):
         target = args.save if isinstance(args.save, str) else getattr(args, "name", None)
         if not target:
-            print("--save needs a template name: finresearch scan NAME --save "
-                  "(or --save NAME)")
-            return
+            fail("--save needs a template name: finresearch scan NAME --save (or --save NAME)")
         existing_names = set(load_scans())
         p = save_scan(target, args)
         scans = load_scans()  # sanity: written file still parses
         if target not in scans:
-            print(f"WARNING: wrote {p} but template '{target}' did not parse back")
-            return
+            fail(f"wrote {p} but template '{target}' did not parse back")
         used = {k: v for k, v in scans[target].items() if k != "description"}
         verb = "Replaced" if target in existing_names else "Saved"
+        if as_json:
+            emit_json({"saved": target, "replaced": target in existing_names,
+                       "path": str(p), "config": used})
+            return
         print(f"{verb} scan '{target}' -> {p}")
         print(f"  config: {used or '(all defaults: add at least one filter)'}")
         print(f"  run it: finresearch scan {target}")
@@ -405,6 +420,9 @@ def cmd_market_scan(args):
     # bare scan (no name, no flags): list saved templates / show how to start;
     # flags without a name run a one-off query
     if not getattr(args, "name", None) and not has_query(args):
+        if as_json:
+            emit_json({"path": str(scans_path()), "templates": _template_summary(load_scans())})
+            return
         if list_scans():
             return
         print("No saved scan templates yet. Start one:")
@@ -415,16 +433,13 @@ def cmd_market_scan(args):
         return
     try:
         total, quotes = run_scan(args)
-    except ValueError as e:
-        print(str(e))
-        return
+    except ValueError as e:  # e.g. unknown sector/industry, with candidates
+        fail(str(e))
     except Exception as e:
-        print(f"scan failed: {e}")
-        return
+        fail(f"scan failed: {e}")
     quotes, dropped = post_filter(quotes, args)
-    if args.json:
-        print(json.dumps({"total": total, "dropped_by_post_filter": dropped,
-                          "results": quotes}, indent=2, default=str))
+    if as_json:
+        emit_json({"total": total, "dropped_by_post_filter": dropped, "results": quotes})
         return
     print(f"=== market scan — region {args.region}"
           + (f", sector~{args.sector}" if args.sector else "")

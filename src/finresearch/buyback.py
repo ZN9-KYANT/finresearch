@@ -5,7 +5,6 @@ Execution: XBRL us-gaap:ShareRepurchase amount history via companyconcept — th
 aggregate $ spent per period as reported by the company itself.
 """
 
-import json
 import re
 
 from .edgar_common import (
@@ -17,7 +16,8 @@ from .edgar_common import (
     strip_tags,
 )
 from .formatting import fmt_num, print_table
-from .sec_edgar import SEC_BASE, resolve_cik
+from .output import emit_json
+from .sec_edgar import SEC_BASE, resolve_ciks
 
 
 def _announced_programs(text):
@@ -81,10 +81,7 @@ def _repurchase_history(cik10, periods=8):
 def scan_buyback(tickers, days=400, exhibit_limit=30):
     """Per issuer: XBRL spend/authorization + press-release (ex-99) language grep."""
     out = []
-    for ticker in tickers:
-        cik10 = resolve_cik(ticker)
-        if not cik10:
-            continue
+    for ticker, cik10 in resolve_ciks(tickers):
         hist = _repurchase_history(cik10)
         filings = list_filings(cik10, ["8-K"], days=days)[:exhibit_limit]
         hits = []
@@ -125,7 +122,7 @@ def cmd_buyback(args):
     tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
     rows = scan_buyback(tickers, days=args.days)
     if args.json:
-        print(json.dumps(rows, indent=2, default=str))
+        emit_json(rows)
         return
     for r in rows:
         print(f"\n=== {r['ticker']} ===")

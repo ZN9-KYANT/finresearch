@@ -37,7 +37,7 @@ uv pip install --python .venv/bin/python -e ".[dev]"   # after fresh clone: pyth
 ## Verify commands (run before every commit)
 
 ```bash
-.venv/bin/python -m pytest tests/ -q          # 118 tests, ~1s — must be 100%
+.venv/bin/python -m pytest tests/ -q          # 137 tests, ~1s — must be 100%
 .venv/bin/python -m ruff check src/ tests/    # must be: All checks passed!
 gitleaks git -v .                             # must be: no leaks found
 ./scripts/privacy-sweep.sh                    # must print: SWEEP CLEAN (or SKIP w/o config)
@@ -56,6 +56,8 @@ personal-data sweep is the one CI can't do for you.
 src/finresearch/
 ├── cli.py              # argparse wiring ONLY — parsers + LAZY dispatch table (COMMANDS)
 ├── config.py           # config dir, watchlist, cache dir, versioned User-Agent
+├── output.py           # THE output contract: emit_json (stdout), warn (stderr), fail (exit 1),
+│                       # redact; cli.main turns uncaught exceptions into one stderr line
 ├── formatting.py       # fmt_num(val, unit) — unit-aware ($, ¥, X/shares, shares); TIER ORDER: T, B, M
 │                       # fmt_pct: FRACTION by default, percent_units=True for percent points
 │                       # print_table lives HERE
@@ -81,6 +83,13 @@ for subcommand families like `fomc odds`/`scan`), add the parser and a `COMMANDS
 entry in `cli.py` (imported lazily on dispatch), tests in `tests/`, README +
 CHANGELOG entries. `print_table(headers, rows)` comes from `formatting.py`; all
 EDGAR HTTP goes through `edgar_common._get` (never a private fetcher).
+
+Output contract (enforced by `tests/test_json_contract.py`): every leaf command
+takes `--json`; in JSON mode stdout is exactly one document via
+`output.emit_json`, raw numbers, `null` for missing. Diagnostics go through
+`output.warn` (stderr). Errors call `output.fail` (stderr line, exit 1) — never
+`print` an error to stdout or `return` exit 0 on failure. "Nothing found" is
+empty JSON, not an error. Document new shapes in `docs/JSON.md`.
 
 ## Unit contracts (verified live — DO NOT break silently)
 

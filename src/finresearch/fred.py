@@ -7,7 +7,6 @@ Free API key required: https://fred.stlouisfed.org/docs/api/api_key.html
 
 import json as json_module
 import os
-import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -15,6 +14,7 @@ from datetime import datetime, timedelta
 import requests
 
 from .config import DEFAULT_USER_AGENT, config_dir
+from .output import emit_json, redact
 
 FRED_BASE = "https://api.stlouisfed.org/fred"
 
@@ -110,12 +110,8 @@ DASHBOARD_GROUPS = {
 
 HEADERS = {"User-Agent": DEFAULT_USER_AGENT}
 
-_KEY_PAT = re.compile(r"(api_key=)[^&\s'\"]+")
-
-
-def _redact(err):
-    """Error text with the API key masked (requests puts the full URL in it)."""
-    return _KEY_PAT.sub(r"\1***", str(err))
+# requests puts the full URL (api_key included) in its error text
+_redact = redact
 
 
 def _get_api_key():
@@ -340,7 +336,7 @@ def _cmd_series(args, api_key):
             "units": units,
             "count": len(observations),
             "observations": [
-                {"date": o["date"], "value": o["value"]} for o in observations
+                {"date": o["date"], "value": _to_float(o["value"])} for o in observations
             ],
         }
         print(json_module.dumps(result, indent=2))
@@ -374,24 +370,58 @@ def _cmd_series(args, api_key):
             print(f"- {o['date']}: {val}")
 
 
+def _to_float(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _point(series_id, data):
+    """Latest observation + change vs the previous one, as JSON-ready numbers."""
+    if not (data and data["observations"]):
+        return {"series_id": series_id, "available": False}
+    obs = data["observations"]
+    latest, prev = obs[-1], (obs[-2] if len(obs) > 1 else None)
+    val = _to_float(latest["value"])
+    pval = _to_float(prev["value"]) if prev else None
+    change = round(val - pval, 6) if val is not None and pval is not None else None
+    return {
+        "series_id": series_id,
+        "available": True,
+        "title": data["title"],
+        "units": data.get("units", ""),
+        "frequency": data.get("frequency", ""),
+        "date": latest["date"],
+        "value": val,
+        "prev_date": prev["date"] if prev else None,
+        "prev_value": pval,
+        "change": change,
+        "change_pct": round(change / pval * 100, 4) if change is not None and pval else None,
+    }
+
+
 def _cmd_dashboard(args, api_key):
     """Show a macro dashboard with key indicators."""
     group = getattr(args, "group", None)
+    groups = {group: DASHBOARD_GROUPS[group]} if group else DASHBOARD_GROUPS
+    fetched = {name: list(zip(sids, _fetch_latest_many(sids, api_key)))
+               for name, sids in groups.items()}
 
-    if group:
-        if group not in DASHBOARD_GROUPS:
-            print(f"\n*Unknown group '{group}'. Available: {', '.join(DASHBOARD_GROUPS.keys())}*", file=sys.stderr)
-            sys.exit(1)
-        groups = {group: DASHBOARD_GROUPS[group]}
-    else:
-        groups = DASHBOARD_GROUPS
+    if getattr(args, "json", False):
+        emit_json({
+            "updated": datetime.now().isoformat(timespec="seconds"),
+            "groups": {name: [_point(sid, data) for sid, data in pairs]
+                       for name, pairs in fetched.items()},
+        })
+        return
 
     print("\n# 📊 FRED Macro Dashboard")
     print(f"*Updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}*\n")
 
-    for group_name, series_ids in groups.items():
+    for group_name, pairs in fetched.items():
         print(f"## {group_name.title()}\n")
-        for sid, data in zip(series_ids, _fetch_latest_many(series_ids, api_key)):
+        for sid, data in pairs:
             if data and data["observations"]:
                 latest = data["observations"][-1]
                 trend = _format_trend(data["observations"])
@@ -457,34 +487,42 @@ def _cmd_search(args, api_key):
         sys.exit(1)
 
 
+# Display grouping for `fred list`
+ALIAS_CATEGORIES = {
+    "Interest Rates": ["fed_funds", "effr", "sofr", "prime", "mortgage_30", "mortgage_15"],
+    "Treasury Yields": ["treasury_3m", "treasury_6m", "treasury_1y", "treasury_2y",
+                        "treasury_5y", "treasury_7y", "treasury_10y", "treasury_20y",
+                        "treasury_30y"],
+    "Yield Spreads": ["spread_2y_10y", "spread_3m_10y"],
+    "Inflation": ["cpi", "cpi_core", "cpi_yoy", "pce", "pce_core", "pce_yoy",
+                  "breakeven_10y", "breakeven_5y"],
+    "Employment": ["unemployment", "nonfarm_payrolls", "initial_claims",
+                   "continuing_claims", "labor_force", "participation"],
+    "GDP & Growth": ["gdp", "gdp_growth", "potential_gdp"],
+    "Money Supply": ["m2", "m2_yoy", "fed_balance_sheet"],
+    "Consumer": ["consumer_credit", "retail_sales", "personal_savings",
+                 "disposable_income"],
+    "Business": ["industrial_production", "capacity_utilization",
+                 "housing_starts", "building_permits",
+                 "new_home_sales", "existing_home_sales", "case_shiller"],
+    "Market": ["vix", "sp500", "dollar_index"],
+    "Recession": ["recession_prob"],
+}
+
+
 def _cmd_list(args):
-    """List all available aliases."""
+    """List all available aliases (offline)."""
+    if getattr(args, "json", False):
+        emit_json({
+            "aliases": {a: {"series_id": sid, "transform": TRANSFORMS.get(a)}
+                        for a, sid in SERIES_ALIASES.items()},
+            "categories": ALIAS_CATEGORIES,
+        })
+        return
+
     print(f"\n# FRED Series Aliases ({len(SERIES_ALIASES)} available)\n")
     print("Use any alias with: `finresearch fred series <alias>`\n")
-
-    # Group by category for readability
-    categories = {
-        "Interest Rates": ["fed_funds", "effr", "sofr", "prime", "mortgage_30", "mortgage_15"],
-        "Treasury Yields": ["treasury_3m", "treasury_6m", "treasury_1y", "treasury_2y",
-                            "treasury_5y", "treasury_7y", "treasury_10y", "treasury_20y",
-                            "treasury_30y"],
-        "Yield Spreads": ["spread_2y_10y", "spread_3m_10y"],
-        "Inflation": ["cpi", "cpi_core", "cpi_yoy", "pce", "pce_core", "pce_yoy",
-                       "breakeven_10y", "breakeven_5y"],
-        "Employment": ["unemployment", "nonfarm_payrolls", "initial_claims",
-                        "continuing_claims", "labor_force", "participation"],
-        "GDP & Growth": ["gdp", "gdp_growth", "potential_gdp"],
-        "Money Supply": ["m2", "m2_yoy", "fed_balance_sheet"],
-        "Consumer": ["consumer_credit", "retail_sales", "personal_savings",
-                      "disposable_income"],
-        "Business": ["industrial_production", "capacity_utilization",
-                      "housing_starts", "building_permits",
-                      "new_home_sales", "existing_home_sales", "case_shiller"],
-        "Market": ["vix", "sp500", "dollar_index"],
-        "Recession": ["recession_prob"],
-    }
-
-    for cat, aliases in categories.items():
+    for cat, aliases in ALIAS_CATEGORIES.items():
         print(f"## {cat}\n")
         for a in aliases:
             sid = SERIES_ALIASES.get(a, a.upper())
@@ -493,47 +531,44 @@ def _cmd_list(args):
         print()
 
 
+YIELD_CURVE_TENORS = [
+    ("3M", "DGS3MO"), ("6M", "DGS6MO"), ("1Y", "DGS1"), ("2Y", "DGS2"), ("5Y", "DGS5"),
+    ("7Y", "DGS7"), ("10Y", "DGS10"), ("20Y", "DGS20"), ("30Y", "DGS30"),
+]
+
+
 def _cmd_yield_curve(args, api_key):
     """Show the current Treasury yield curve."""
-    maturities = [
-        ("3M", "DGS3MO"),
-        ("6M", "DGS6MO"),
-        ("1Y", "DGS1"),
-        ("2Y", "DGS2"),
-        ("5Y", "DGS5"),
-        ("7Y", "DGS7"),
-        ("10Y", "DGS10"),
-        ("20Y", "DGS20"),
-        ("30Y", "DGS30"),
-    ]
+    fetched = _fetch_latest_many([sid for _, sid in YIELD_CURVE_TENORS], api_key)
+    points = [(label, _point(sid, data))
+              for (label, sid), data in zip(YIELD_CURVE_TENORS, fetched)]
+    yields = {label: pt["value"] for label, pt in points if pt.get("value") is not None}
+    spreads = {name: round(yields[long] - yields[short], 4)
+               for name, long, short in (("10Y-2Y", "10Y", "2Y"), ("10Y-3M", "10Y", "3M"))
+               if long in yields and short in yields}
+
+    if getattr(args, "json", False):
+        emit_json({
+            "curve": [{"tenor": label, "series_id": pt["series_id"],
+                       "date": pt.get("date"), "yield_pct": pt.get("value")}
+                      for label, pt in points],
+            "spreads_pct": spreads,
+            "inverted": {name: v < 0 for name, v in spreads.items()},
+        })
+        return
 
     print("\n# 📈 Treasury Yield Curve\n")
-
-    yields = {}
-    fetched = _fetch_latest_many([sid for _, sid in maturities], api_key)
-    for (label, _sid), data in zip(maturities, fetched):
-        if data and data["observations"]:
-            latest = data["observations"][-1]
-            try:
-                val = float(latest["value"])
-                yields[label] = val
-                print(f"- **{label}**: {val:.3f}% ({latest['date']})")
-            except (ValueError, TypeError):
-                print(f"- {label}: *N/A*")
+    for label, pt in points:
+        if pt.get("value") is not None:
+            print(f"- **{label}**: {pt['value']:.3f}% ({pt['date']})")
         else:
             print(f"- {label}: *N/A*")
 
-    # Spreads
-    if "2Y" in yields and "10Y" in yields:
-        spread = yields["10Y"] - yields["2Y"]
-        signal = "⚠️ INVERTED (recession signal)" if spread < 0 else "Normal"
+    if spreads:
         print("\n## Key Spreads")
-        print(f"- **10Y-2Y**: {spread:.3f}% {signal}")
-
-    if "3M" in yields and "10Y" in yields:
-        spread = yields["10Y"] - yields["3M"]
+    for name, spread in spreads.items():
         signal = "⚠️ INVERTED (recession signal)" if spread < 0 else "Normal"
-        print(f"- **10Y-3M**: {spread:.3f}% {signal}")
+        print(f"- **{name}**: {spread:.3f}% {signal}")
 
     # Visual curve (ASCII)
     if len(yields) >= 4:

@@ -1,6 +1,6 @@
 """Financial Research Toolkit — Free alternative to financialdatasets.ai."""
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 # Public helpers resolve lazily (PEP 562) so `import finresearch` stays cheap:
 # the CLI must not pay for pandas/yfinance on commands that never touch them.

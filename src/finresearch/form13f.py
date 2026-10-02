@@ -19,9 +19,7 @@ Commands:
 """
 
 import functools
-import json
 import math
-import sys
 import urllib.parse
 import xml.etree.ElementTree as ET
 
@@ -36,6 +34,7 @@ from .edgar_common import (
     to_float,
 )
 from .formatting import fmt_num, fmt_shares, print_table
+from .output import emit_json, fail, warn
 
 EFTS = "https://efts.sec.gov/LATEST/search-index"
 
@@ -262,16 +261,24 @@ def _resolve_holder(name):
 
 def cmd_13f(args):
     sub = getattr(args, "subcommand", None)
+    as_json = getattr(args, "json", False)
     if sub == "diff":
         from .form13f_diff import compute_diff, print_diff
         words = list(args.issuer_words)
+        issuer = " ".join(words).upper()
         rows = compute_diff(words, limit=args.limit, min_shares=args.min_shares)
+        if as_json:
+            emit_json({"issuer": issuer, "rows": rows})
+            return
         print(f"=== 13F quarter-over-quarter changes for \"{' '.join(words)}\" ===")
         print_diff(rows, " ".join(words))
         return
     if sub == "who":
         name = " ".join(args.issuer_words).upper()
         res = who_holds(name, limit=args.limit)
+        if as_json:
+            emit_json({"issuer": name, **res})
+            return
         print(f"=== 13F filers holding \"{name}\" (full-text search) ===")
         print(f"raw hits: {res['total_raw_hits']}")
         if not res["filers"]:
@@ -287,15 +294,13 @@ def cmd_13f(args):
     if sub == "holder":
         cik, title = _resolve_holder(args.holder)
         if not cik:
-            print(f"Unknown holder: {args.holder} (pass a ticker or 10-digit CIK)")
-            return
-        print(f"Fetching latest 13F-HR for {title} ({cik}) ...", file=sys.stderr)
+            fail(f"unknown holder {args.holder} (pass a ticker or 10-digit CIK)")
+        warn(f"Fetching latest 13F-HR for {title} ({cik}) ...")
         data = fetch_holder_holdings(cik)
         if not data:
-            print("No holdings table found in the latest filing.")
-            return
-        if args.json:
-            print(json.dumps(data, indent=2, default=str))
+            fail(f"no 13F-HR holdings table found for {title} ({cik})")
+        if as_json:
+            emit_json({"holder": title, "cik": cik, **data})
             return
         vs = data["value_scale"]
         print(f"filed {data['filed']} | period {data['period']} "

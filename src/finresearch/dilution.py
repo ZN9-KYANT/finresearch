@@ -6,12 +6,12 @@ phrasing = ATM equity program. Extracts share counts / dollar sizes heuristicall
 from the prospectus text (numbers are as-filed, best-effort).
 """
 
-import json
 import re
 
 from .edgar_common import fetch_doc_text, list_filings
 from .formatting import print_table
-from .sec_edgar import resolve_cik
+from .output import emit_json
+from .sec_edgar import resolve_ciks
 
 
 def _first_number(text, patterns):
@@ -41,10 +41,7 @@ def _offering_hints(text):
 
 def scan_dilution(tickers, days=365):
     out = []
-    for ticker in tickers:
-        cik10 = resolve_cik(ticker)
-        if not cik10:
-            continue
+    for ticker, cik10 in resolve_ciks(tickers):
         filings = list_filings(cik10, [], regex=r"^(S-3\b|S-3ASR|424B)", days=days)
         for f in filings:
             shares = size = None
@@ -71,7 +68,7 @@ def cmd_dilution(args):
     tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
     rows = scan_dilution(tickers, days=args.days)
     if args.json:
-        print(json.dumps(rows, indent=2, default=str))
+        emit_json(rows)
         return
     if not rows:
         print("No S-3/424B filings in the period.")

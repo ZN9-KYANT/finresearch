@@ -3,19 +3,53 @@
 All notable changes to finresearch. Format follows
 [Keep a Changelog](https://keepachangelog.com); versions are semver.
 
-## [Unreleased]
+## [1.1.0] — 2026-10-02
+
+Full machine-readable output: every command now speaks JSON, and every command
+follows one output contract — built for AI agents, scripts, and cron jobs.
+
+### Added
+- `--json` on the last ten commands without it: `sec` (key facts, `--type`,
+  `--concept` with full history), `compare`, `transcript`, `fred dashboard`,
+  `fred list`, `fred yield_curve`, `fomc calendar`, `fomc sentiment`, `13f who`,
+  `13f diff`. Every command now takes `--json`.
+- `gappers --json` (alias of `--format json`), so one flag works everywhere.
+- `scan --json` lists saved templates; `scan NAME --save --json` reports what was saved.
+- `docs/JSON.md`: the output contract plus every command's JSON shape and units.
+- `FINRESEARCH_DEBUG=1` shows the full traceback instead of the one-line error.
+
+### Changed
+- One output contract for all commands: exit `0` on success (empty results are
+  valid JSON, not errors), exit `1` with a single `finresearch: error: …` line on
+  stderr for errors, exit `2` for usage errors (including a command family run
+  without its subcommand, which used to exit 1). Unexpected exceptions become
+  that one line too, with credentials masked.
+- Errors that used to print to stdout and exit 0 now exit 1 on stderr: unknown
+  tickers (`ticker`, `sec`, `insider detail`, `news`, `13f holder`), unknown
+  scan templates and sectors, a failed scan, an unreachable SEC FTD archive, and
+  a filer without a 13F holdings table.
+- Unknown tickers: `ticker` errors instead of printing a table of N/A;
+  `compare`/`screen` report them as per-ticker `error` entries; `insider scan`,
+  `activist`, `dilution`, `buyback`, and `8k` skip them with a `[skip]` notice on
+  stderr. Each fails only when no ticker yields data.
+- `fred series --json` observation values are numbers (were strings).
+- `13f holder --json` adds `holder` and `cik`; `screen --json` no longer
+  leaks internal fields into `query.filters`.
 
 ### Fixed
-- `13f holder --json`: the "Fetching latest 13F-HR…" progress line went to stdout
-  and broke JSON parsing; it now goes to stderr like every other diagnostic.
+- `13f holder --json` printed its "Fetching…" progress line to stdout, breaking
+  JSON parsing; it goes to stderr now.
+- `gappers --json` could emit source-failure notices to stdout; they go to stderr.
+- `news` accepted unknown tickers (Google Finance answers them with a generic
+  200 page) and its company name and price parsing had broken after a markup
+  change; quotes are now validated by page title, names come from the title, and
+  the price is read from the quote's own "Current" field (ETF pages: `null`).
 
 ### Docs
-- README: "Built for agents and automation" — the machine contract (JSON on
-  stdout, diagnostics on stderr, non-interactive, keyless, per-job config),
-  tool-calling and cron recipes, jq pipelines, and rate etiquette for
-  unattended runs. Corrected which settings can come from a `.env` file
-  (`FRED_API_KEY` only; `FINRA_API_KEY` and `FINRESEARCH_SEC_UA` are
-  environment-only).
+- README: "Built for agents and automation" — the machine contract, tool-calling
+  and cron recipes, jq pipelines, and rate etiquette for unattended runs.
+- Corrected which settings can come from a `.env` file (`FRED_API_KEY` only;
+  `FINRA_API_KEY` and `FINRESEARCH_SEC_UA` are environment-only).
 
 ## [1.0.0] — 2026-10-02
 

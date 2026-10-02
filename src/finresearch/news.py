@@ -6,9 +6,12 @@ Also the shared Google Finance helper for `gappers` catalyst lookups.
 import json
 import re
 import time
+from html import unescape
 
 import requests
 from bs4 import BeautifulSoup
+
+from .output import fail
 
 # Google Finance quote URL — SSR, works with plain requests
 GF_URL = "https://www.google.com/finance/quote/{ticker}:{exchange}"
@@ -43,9 +46,16 @@ def fetch_quote_page(ticker, exchange=None):
                                 timeout=10, allow_redirects=True)
         except requests.RequestException:
             continue
-        if resp.status_code == 200 and "ticker not found" not in resp.text.lower():
+        # unknown symbols still get a 200 page; a real quote's <title> names
+        # the ticker: "Apple Inc (AAPL) Stock Price & News - Google Finance"
+        if resp.status_code == 200 and f"({ticker.upper()})" in _title(resp.text):
             return ex, resp.text
     return None, None
+
+
+def _title(html):
+    m = re.search(r"<title>(.*?)</title>", html, re.S | re.I)
+    return unescape(m.group(1)).strip() if m else ""
 
 
 def parse_headlines(html, max_items=15):
@@ -71,24 +81,20 @@ def parse_headlines(html, max_items=15):
 
 
 def _parse_price_info(html):
-    """Parse basic price info from Google Finance page."""
-    soup = BeautifulSoup(html, "html.parser")
+    """Company name (from the page title) and last price from a quote page."""
     info = {}
-
-    # Price is typically in a div with specific class patterns
-    price_div = soup.find("div", class_=re.compile(r"YMlKec"))
-    if price_div:
-        price_text = price_div.get_text(strip=True).replace("$", "").replace(",", "")
+    m = re.match(r"(.+?) \([A-Z0-9.\-]+\) Stock Price", _title(html))
+    if m:
+        info["name"] = m.group(1)
+    # the quote's own price sits behind a "Current" label; other price spans on
+    # the page belong to the market ticker bar. ETF pages have no such label:
+    # better no price than a wrong one.
+    m = re.search(r'Current <span jsname="Pdsbrc"[^>]*><span>([^<]+)</span>', html)
+    if m:
         try:
-            info["price"] = float(price_text)
+            info["price"] = float(re.sub(r"[^\d.\-]", "", m.group(1)))
         except ValueError:
             pass
-
-    # Company name
-    name_div = soup.find("h1")
-    if name_div:
-        info["name"] = name_div.get_text(strip=True)
-
     return info
 
 
@@ -101,12 +107,7 @@ def cmd_news(args):
     exchange, html = fetch_quote_page(ticker)
 
     if not html:
-        if json_output:
-            print(json.dumps({"ticker": ticker, "headlines": [],
-                              "error": "Ticker not found on Google Finance"}))
-        else:
-            print(f"\n# News for {ticker}\n\n*Could not find ticker on Google Finance*\n")
-        return
+        fail(f"ticker {ticker} not found on Google Finance")
 
     headlines = parse_headlines(html, max_items)
     price_info = _parse_price_info(html)

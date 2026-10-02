@@ -6,9 +6,11 @@ pandas/yfinance (fomc, fred, edgar...) don't pay for importing them.
 
 import argparse
 import importlib
+import os
 import sys
 
 from . import __version__
+from .output import redact
 
 # command -> (module, handler)
 COMMANDS = {
@@ -34,7 +36,8 @@ COMMANDS = {
 }
 
 
-def main():
+def build_parser():
+    """The full argparse tree -> (parser, {family command: (subparser, dest)})."""
     parser = argparse.ArgumentParser(
         prog="finresearch",
         description="Financial Research Toolkit — Free alternative to financialdatasets.ai",
@@ -58,14 +61,17 @@ def main():
     s_parser.add_argument("ticker", help="Ticker symbol (e.g. VST)")
     s_parser.add_argument("--type", help="Filing type filter (10-K, 10-Q, 8-K)")
     s_parser.add_argument("--concept", help="XBRL concept (e.g. revenue, net_income, eps, or raw tag)")
+    s_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     # transcript command
     tr_parser = subparsers.add_parser("transcript", help="Earnings transcript info")
     tr_parser.add_argument("ticker", help="Ticker symbol")
+    tr_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     # compare command
     c_parser = subparsers.add_parser("compare", help="Compare multiple tickers")
     c_parser.add_argument("tickers", nargs="+", help="Ticker symbols to compare")
+    c_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     # gappers command
     g_parser = subparsers.add_parser("gappers", help="Premarket gappers scanner")
@@ -90,6 +96,8 @@ def main():
     g_parser.add_argument("--format", choices=["markdown", "json"], default="markdown",
                           dest="output_format",
                           help="Output format (default: markdown)")
+    g_parser.add_argument("--json", action="store_const", const="json", dest="output_format",
+                          help="Output as JSON (same as --format json)")
     g_parser.add_argument("--output-dir", type=str, default=None,
                           help="Output directory for JSON file")
 
@@ -155,6 +163,7 @@ def main():
     from .fred import DASHBOARD_GROUPS
     fr_dash.add_argument("--group", choices=list(DASHBOARD_GROUPS), default=None,
                          help="Show only one group")
+    fr_dash.add_argument("--json", action="store_true", help="Output as JSON")
 
     # fred search
     fr_search = fr_sub.add_parser("search", help="Search FRED series by keyword")
@@ -163,17 +172,20 @@ def main():
     fr_search.add_argument("--json", action="store_true", help="Output as JSON")
 
     # fred list
-    fr_sub.add_parser("list", help="List all available series aliases")
+    fr_list = fr_sub.add_parser("list", help="List all available series aliases")
+    fr_list.add_argument("--json", action="store_true", help="Output as JSON")
 
     # fred yield_curve
-    fr_sub.add_parser("yield_curve", help="Current Treasury yield curve + spreads")
+    fr_yc = fr_sub.add_parser("yield_curve", help="Current Treasury yield curve + spreads")
+    fr_yc.add_argument("--json", action="store_true", help="Output as JSON")
 
     # fomc command (FOMC statements, minutes, sentiment)
     fc_parser = subparsers.add_parser("fomc", help="FOMC statements, minutes, and sentiment analysis")
     fc_sub = fc_parser.add_subparsers(dest="subcommand", help="FOMC subcommand")
 
     # fomc calendar
-    fc_sub.add_parser("calendar", help="Show FOMC meeting calendar (2022-2027)")
+    fc_cal = fc_sub.add_parser("calendar", help="Show FOMC meeting calendar (2022-2027)")
+    fc_cal.add_argument("--json", action="store_true", help="Output as JSON")
 
     # fomc statement
     fc_stmt = fc_sub.add_parser("statement", help="Fetch latest (or specific) FOMC statement")
@@ -189,7 +201,8 @@ def main():
     fc_min.add_argument("--json", action="store_true", help="Output as JSON")
 
     # fomc sentiment
-    fc_sub.add_parser("sentiment", help="Compare sentiment between last two FOMC statements")
+    fc_sent = fc_sub.add_parser("sentiment", help="Compare sentiment between last two FOMC statements")
+    fc_sent.add_argument("--json", action="store_true", help="Output as JSON")
 
     # fomc odds (Polymarket-implied probabilities)
     from .fomc_odds import register as _register_odds
@@ -229,12 +242,14 @@ def main():
     tf_who = tf_sub.add_parser("who", help="Which 13F filers hold an issuer")
     tf_who.add_argument("issuer_words", nargs="+", help="Issuer name words, e.g.: NVIDIA CORP")
     tf_who.add_argument("--limit", type=int, default=25, help="Max filers shown (default: 25)")
+    tf_who.add_argument("--json", action="store_true", help="Output as JSON")
 
     tf_diff = tf_sub.add_parser("diff", help="Quarter-over-quarter adds/drops for an issuer")
     tf_diff.add_argument("issuer_words", nargs="+", help="Issuer name words, e.g.: NOKIA CORP")
     tf_diff.add_argument("--limit", type=int, default=15, help="Max filers analyzed (default: 15)")
     tf_diff.add_argument("--min-shares", type=int, default=None,
                          help="Ignore positions below this share count")
+    tf_diff.add_argument("--json", action="store_true", help="Output as JSON")
 
     # activist command (SC 13D/G)
     ac_parser = subparsers.add_parser("activist", help="SC 13D/G stakes (SEC EDGAR)")
@@ -304,22 +319,39 @@ def main():
                            help="Force the free keyless historical slice")
     sh_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
-    args = parser.parse_args()
-
     # subcommand families with no default action print their own help
-    family_parsers = {"insider": (in_parser, "insider_cmd"), "13f": (tf_parser, "subcommand"),
-                      "ftd": (ft_parser, "ftd_cmd")}
-    if args.command in family_parsers:
-        fam_parser, dest = family_parsers[args.command]
+    families = {"insider": (in_parser, "insider_cmd"), "13f": (tf_parser, "subcommand"),
+                "ftd": (ft_parser, "ftd_cmd")}
+    return parser, families
+
+
+def main(argv=None):
+    parser, families = build_parser()
+    args = parser.parse_args(argv)
+
+    if args.command in families:
+        fam_parser, dest = families[args.command]
         if not getattr(args, dest, None):
-            fam_parser.print_help()
-            sys.exit(1)
+            fam_parser.print_help(sys.stderr)
+            sys.exit(2)
 
     if args.command not in COMMANDS:
-        parser.print_help()
-        sys.exit(1)
+        parser.print_help(sys.stderr)
+        sys.exit(2)
     module, handler = COMMANDS[args.command]
-    getattr(importlib.import_module(f".{module}", __package__), handler)(args)
+    try:
+        getattr(importlib.import_module(f".{module}", __package__), handler)(args)
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except BrokenPipeError:
+        # downstream closed the pipe (e.g. `| head`): not an error of ours
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        sys.exit(0)
+    except Exception as e:  # one stderr line + exit 1; FINRESEARCH_DEBUG=1 for the traceback
+        if os.getenv("FINRESEARCH_DEBUG"):
+            raise
+        print(f"finresearch: error: {type(e).__name__}: {redact(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

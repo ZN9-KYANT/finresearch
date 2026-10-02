@@ -17,6 +17,7 @@ import zipfile
 
 from .edgar_common import _get
 from .formatting import fmt_num, fmt_shares, print_table
+from .output import fail
 
 FTD_BASE = "https://www.sec.gov/files/data/fails-deliver-data"
 
@@ -128,9 +129,13 @@ def aggregate_top(rows, top=15, by="value", min_quantity=None):
 
 
 def symbol_history(symbol, files=3):
-    """Fails history for one symbol over the last `files` FTD files."""
+    """Fails history for one symbol over the last `files` FTD files
+    (None when no FTD file could be reached at all)."""
+    found = latest_ftd_files(count=files)
+    if not found:
+        return None
     hist = []
-    for (y, m, half) in latest_ftd_files(count=files):
+    for (y, m, half) in found:
         rows, _ = fetch_ftd(y, m, half)
         for r in rows:
             if r["symbol"].upper() == symbol.upper():
@@ -144,6 +149,8 @@ def cmd_ftd(args):
     sub = getattr(args, "ftd_cmd", None)
     if sub == "sym":
         hist = symbol_history(args.symbol, files=args.files)
+        if hist is None:
+            fail("could not reach any recent SEC FTD file (sec.gov unreachable?)")
         if args.json:
             print(json.dumps(hist, indent=2, default=str))
             return
@@ -162,8 +169,7 @@ def cmd_ftd(args):
     # default: top across the latest file
     files = latest_ftd_files(count=1)
     if not files:
-        print("Could not reach any recent FTD file (sec.gov unreachable?).")
-        return
+        fail("could not reach any recent SEC FTD file (sec.gov unreachable?)")
     y, m, half = files[0]
     rows, trailer = fetch_ftd(y, m, half)
     if args.json:

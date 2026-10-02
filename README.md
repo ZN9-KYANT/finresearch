@@ -98,8 +98,9 @@ unattended. These are the guarantees it makes to that caller:
 | Contract | What it means for an agent, script, or cron job |
 |---|---|
 | **Non-interactive** | No prompts, no pagers, no TTY assumptions. Safe under cron, CI, systemd/launchd timers, and tool-calling harnesses. |
-| **JSON on stdout** | 21 data commands take `--json` (`gappers` takes `--format json`). stdout is then a single JSON document; progress lines, warnings, and `[skip]` notices go to stderr. |
-| **Empty is not an error** | "Nothing found" comes back as valid JSON (`[]`, `{"results": []}`), so `jq -e 'length > 0'` makes a clean alert condition. |
+| **JSON on stdout, everywhere** | Every command takes `--json`. stdout is then exactly one JSON document; progress lines, warnings, and `[skip]` notices go to stderr. Shapes and units for every command: [`docs/JSON.md`](docs/JSON.md). |
+| **Predictable exit codes** | `0` success, `1` error (one `finresearch: error: …` line on stderr, nothing on stdout), `2` usage error. Unknown tickers, unreachable sources, and bad templates are errors; set `FINRESEARCH_DEBUG=1` for a traceback. |
+| **Empty is not an error** | "Nothing found" comes back as valid JSON (`[]`, `{"results": []}`) with exit 0, so `jq -e 'length > 0'` makes a clean alert condition. |
 | **Raw values, explicit units** | JSON carries unformatted numbers. `ticker --json` names its `currency` (listing) and `financial_currency` (reporting). Unit contracts (percent vs fraction, 13F value units) are documented in [`AGENTS.md`](AGENTS.md). |
 | **Keyless by default** | Every command except `fred` runs with zero setup. Optional keys come from the environment, so they fit secret managers and crontab env lines. |
 | **Per-job isolation** | `FINRESEARCH_CONFIG_DIR=/path/to/job` gives each agent or job its own watchlist, scan templates, and `.env`. |
@@ -107,9 +108,8 @@ unattended. These are the guarantees it makes to that caller:
 | **Self-describing** | `finresearch --help` and `<command> --help` at every level, so agents can discover the tool surface; `--version` lets pipelines pin behaviour. |
 | **Polite when unattended** | One paced fetcher keeps SEC traffic under 10 req/s with a declared User-Agent. FRED fetches only the observations it shows. 8-K item codes come from one feed request, not per-filing downloads. |
 
-Human-oriented commands (markdown only for now): `sec`, `compare`, `transcript`,
-`fred dashboard | list | yield_curve`, `fomc calendar | sentiment`, and
-`13f who | diff`.
+Without `--json`, every command prints human-readable markdown with the same
+exit codes.
 
 ### Calling it from an agent
 
@@ -129,8 +129,10 @@ trades = finresearch("insider", "scan", "--tickers", "NVDA,AMD,MU", "--days", "7
 movers = finresearch("scan", "--day-chg-min", "5", "--volume-min", "5000000")
 ```
 
-Give the agent `finresearch --help` (or this README) as the tool description; each
-subcommand's `--help` lists its flags and units.
+Give the agent `finresearch --help` (or this README) as the tool description, and
+[`docs/JSON.md`](docs/JSON.md) as the schema for what comes back; each
+subcommand's `--help` lists its flags and units. With `check=True`, an error
+raises `CalledProcessError` whose `stderr` holds the one-line reason.
 
 ### Scheduled research (cron)
 
@@ -145,7 +147,7 @@ OUT=/home/you/research
 FINRESEARCH_SEC_UA=my-research-bot/1.0 you@example.com
 
 # 08:45 Mon–Fri: premarket gappers (each run is also saved to ~/.cache/finresearch/gappers/)
-45 8 * * 1-5  $FR gappers --format json > $OUT/gappers-$(date +\%F).json 2>> $OUT/cron.log
+45 8 * * 1-5  $FR gappers --json > $OUT/gappers-$(date +\%F).json 2>> $OUT/cron.log
 
 # 18:30 Mon–Fri: open-market insider buys/sells across the watchlist
 30 18 * * 1-5 $FR insider scan --days 1 --json > $OUT/insiders-$(date +\%F).json 2>> $OUT/cron.log
@@ -166,7 +168,7 @@ FINRESEARCH_SEC_UA=my-research-bot/1.0 you@example.com
 finresearch scan quality-dip --json | jq -r '.results[].symbol'          # tickers for the next step
 finresearch insider scan --days 14 --json \
   | jq -r '.[] | select(.transactions | length > 0) | "\(.ticker): \(.transactions | length) trades"'
-finresearch gappers --format json --no-catalyst | jq -r '.gappers[] | "\(.symbol) \(.premarket_gap_pct)%"'
+finresearch gappers --json --no-catalyst | jq -r '.gappers[] | "\(.symbol) \(.premarket_gap_pct)%"'
 finresearch fomc odds --limit 1 --json \
   | jq -r '.[0] | "\(.meeting): " + ([.buckets | to_entries[] | "\(.key) \(.value*100|round)%"] | join(", "))'
 ```
@@ -467,7 +469,7 @@ finresearch gappers                                  # top 10 with catalyst head
 finresearch gappers --min-gap 5 --min-price 3 --min-volume 50000
 finresearch gappers --no-catalyst                    # faster
 finresearch gappers --catalyst crawl4ai              # TradingView news (needs crawl4ai)
-finresearch gappers --format json --no-catalyst      # piping / agents
+finresearch gappers --json --no-catalyst             # piping / agents (= --format json)
 ```
 
 Each run also saves its JSON to `~/.cache/finresearch/gappers/` (override with

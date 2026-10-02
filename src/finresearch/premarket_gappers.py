@@ -35,6 +35,7 @@ from bs4 import BeautifulSoup
 from .config import cache_dir
 from .formatting import print_table
 from .news import fetch_quote_page, parse_headlines
+from .output import warn
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -110,13 +111,13 @@ def _fetch_gappers_tradingview() -> list[dict]:
         resp = requests.get(TV_GAPPERS_URL, headers={"User-Agent": UA}, timeout=15)
         resp.raise_for_status()
     except Exception as e:
-        print(f"  TradingView fetch failed: {e}")
+        warn(f"  TradingView fetch failed: {e}")
         return []
 
     soup = BeautifulSoup(resp.text, "html.parser")
     tables = soup.find_all("table")
     if not tables:
-        print("  TradingView: no tables found in HTML")
+        warn("  TradingView: no tables found in HTML")
         return []
 
     # Find the gappers table — it has 'Pre-mkt gap' in headers
@@ -193,7 +194,7 @@ def _fetch_gappers_stockanalysis() -> list[dict]:
         resp = requests.get(SA_GAPPERS_URL, headers={"User-Agent": UA}, timeout=15)
         resp.raise_for_status()
     except Exception as e:
-        print(f"  Stock Analysis fetch failed: {e}")
+        warn(f"  Stock Analysis fetch failed: {e}")
         return []
 
     html = resp.text
@@ -207,7 +208,7 @@ def _fetch_gappers_stockanalysis() -> list[dict]:
     matches = re.findall(pattern, html)
 
     if not matches:
-        print("  Stock Analysis: no premarket data objects found in HTML")
+        warn("  Stock Analysis: no premarket data objects found in HTML")
         return []
 
     gappers = []
@@ -367,11 +368,11 @@ def _fetch_catalyst_crawl4ai(symbol: str) -> dict:
             if headlines:
                 return {"catalyst": headlines[0], "headlines": headlines[:3]}
     except FileNotFoundError:
-        print("    crawl4ai (crwl) not found. Install with: pip install crawl4ai")
-        print("    Falling back to Google Finance (requests-only)...")
+        warn("    crawl4ai (crwl) not found. Install with: pip install crawl4ai")
+        warn("    Falling back to Google Finance (requests-only)...")
         return _fetch_catalyst_google(symbol)
     except Exception as e:
-        print(f"    crawl4ai TradingView failed: {e}")
+        warn(f"    crawl4ai TradingView failed: {e}")
 
     # Source 2: Yahoo Finance (JS-rendered, needs crawl4ai)
     yf_url = f"https://finance.yahoo.com/quote/{ticker}/news/"
@@ -385,7 +386,7 @@ def _fetch_catalyst_crawl4ai(symbol: str) -> dict:
             if headlines:
                 return {"catalyst": headlines[0], "headlines": headlines[:3]}
     except Exception as e:
-        print(f"    crawl4ai Yahoo Finance failed: {e}")
+        warn(f"    crawl4ai Yahoo Finance failed: {e}")
 
     # Source 3: Fallback to Google Finance (requests-only, always available)
     return _fetch_catalyst_google(symbol)
