@@ -1,6 +1,7 @@
 # finresearch 🌙
 
-[License: MIT](LICENSE) · Python 3.10+ · CI: see `.github/workflows/ci.yml`
+[License: MIT](LICENSE) · Python 3.10+ · CI: see `.github/workflows/ci.yml` ·
+**English** | [日本語](README.ja.md)
 
 **Financial research built for AI agents and research automation.** finresearch is
 a free, open-source CLI designed first to be driven by AI agents, cron jobs, and
@@ -17,7 +18,8 @@ endpoints (Yahoo Finance via yfinance). No paid API keys. The open-source
 alternative to paid AI financial-data APIs.
 
 → Jump to [Built for agents and automation](#built-for-agents-and-automation) for the
-machine contract, tool-calling and cron recipes.
+machine contract, tool-calling and cron recipes. Agents: install the
+[finresearch skill](skills/finresearch/SKILL.md) to learn the whole tool in one file.
 
 ## Highlights
 
@@ -49,12 +51,12 @@ machine contract, tool-calling and cron recipes.
 - **`fomc`** — Hawkish/dovish sentiment scoring of Fed statements with stance-shift
   diffs between meetings, minutes, the meeting calendar — and `fomc odds`:
   market-implied rate-decision probabilities from Polymarket's live FOMC markets.
-- **`fred`** — 56 curated aliases over 800K+ FRED series, macro dashboard, and a
+- **`fred`** — 54 curated aliases over 800K+ FRED series, macro dashboard, and a
   yield-curve command with inversion spreads.
 - **`gappers`** — Premarket gap scanner with catalyst headlines.
-- **`scan`** — FULL-MARKET screening on Yahoo's server-side engine: ~90 filter
-  fields across price/valuation/margins/short interest/ownership, any region
-  (US, JP...). No ticker list required — discovers candidates from the universe.
+- **`scan`** — FULL-MARKET screening on Yahoo's server-side engine: 24 filter
+  fields across price/valuation/margins/growth/short interest/ownership, any of
+  59 regions (US, JP...). No ticker list required — discovers candidates from the universe.
 - **`ticker` / `sec` / `compare` / `screen`** — fundamentals, XBRL concepts
   (`--concept revenue`), side-by-sides, and a PEG-aware screener. Japanese listings
   (`7203.T`, `6758.T`...) work end-to-end with correct ¥ formatting.
@@ -184,15 +186,31 @@ finresearch fomc odds --limit 1 --json \
   an unofficial endpoint that is rate-sensitive. Schedule them, don't loop them,
   and space jobs a few minutes apart.
 
+### The finresearch skill (teach an agent the whole tool)
+
+[`skills/finresearch/SKILL.md`](skills/finresearch/SKILL.md) is a complete usage
+guide written for agents: which command answers which question, research
+workflows, units and data caveats, and the JSON contract. It follows the Agent
+Skills format (YAML frontmatter + markdown), so skill-aware agents load it on
+demand; any other agent can simply be pointed at the file.
+
+```bash
+# Claude Code, all projects (the skill references docs/JSON.md through a symlink,
+# so link the directory rather than copying it)
+mkdir -p ~/.claude/skills && ln -s "$PWD/skills/finresearch" ~/.claude/skills/finresearch
+```
+
+Inside this repository, Claude Code already sees it at `.claude/skills/finresearch`.
+
 ### Coding agents working on this repo
 
 `AGENTS.md` at the root carries the guidance every coding agent should follow:
-setup, verify gates, architecture, and unit contracts. It is read natively by
-Codex, Grok, pi, and Hermes; Claude Code reads `CLAUDE.md`, a symlink to it. One
-command links everything for a fresh clone:
+how to use the tool, setup, verify gates, architecture, unit contracts, and the
+release process. It is read natively by Codex, Grok, pi, and Hermes; Claude Code
+reads `CLAUDE.md`, a symlink to it. One command links everything for a fresh clone:
 
 ```bash
-./scripts/install-agent-files.sh   # links CLAUDE.md, writes .cursor rule
+./scripts/install-agent-files.sh   # links CLAUDE.md + the project skill, writes .cursor rule
 ```
 
 ## Ownership & flow commands (SEC EDGAR)
@@ -300,7 +318,7 @@ finresearch fred dashboard --group inflation
 finresearch fred series fed_funds --years 2
 finresearch fred yield_curve                     # full curve + 2s10s/3m10s spreads
 finresearch fred search "housing" --limit 10
-finresearch fred list                            # all 56 aliases
+finresearch fred list                            # all 54 aliases
 ```
 
 ### Screening & comparison
@@ -357,11 +375,14 @@ Ratio filters take **percent numbers** — `--netmargin-min 20` means 20%
 | `--debteq-min/max` | debt / equity | plain |
 | `--quickratio-min/max` | quick ratio | plain |
 | `--altmanz-min/max` | Altman Z-score | plain |
+| `--beta-min/max` | beta | plain |
+| `--pb-min/max` | price / book | plain |
+| `--perf-52w-min/max` | 52-week price change | percent |
 
 #### Other options
 
 ```bash
---region us          # us, jp, gb, de, fr, hk, kr, tw, in, ca, au ... (58 Yahoo regions)
+--region us          # us, jp, gb, de, fr, hk, kr, tw, in, ca, au ... (59 Yahoo regions)
 --sector financial   # fuzzy-matched against Yahoo's sector vocabulary
 --industry banks     # fuzzy-matched; unknown value prints matching candidates
 --sort FIELD         # mktcap (default), price, day-chg, volume, pe, peg, netmargin,
@@ -460,7 +481,7 @@ finresearch scan                      # the seven appear in your template list
 finresearch scan quality-dip          # run one; any flag still overrides
 ```
 
-See [`CHANGELOG.md`](CHANGELOG.md) for the release history.
+See [`CHANGELOG.md`](CHANGELOG.md) for the release history ([日本語](CHANGELOG.ja.md)).
 
 ### Premarket gappers
 
@@ -482,7 +503,7 @@ Each run also saves its JSON to `~/.cache/finresearch/gappers/` (override with
 | SEC EDGAR (`data.sec.gov`, `www.sec.gov`, `efts.sec.gov`) | `sec`, `insider`, `13f`, `activist`, `dilution`, `buyback`, `8k`, `ftd` | Official public API; declared User-Agent; ≤10 req/s honored |
 | SEC FTD files (`www.sec.gov/files/data/fails-deliver-data`) | `ftd` | Official public dataset, twice-monthly zips |
 | FINRA API (`api.finra.org`) | `short` | Keyless historical slice; free API key for current data |
-| Federal Reserve (`federalreserve.gov`) | `fomc` | Public pages, cached-friendly pacing |
+| Federal Reserve (`federalreserve.gov`) | `fomc` | Public pages; one request per statement or minutes |
 | FRED (`fred.stlouisfed.org`) | `fred` | Official API; free key; 120 req/min honored |
 | Yahoo Finance (via **yfinance**) | `ticker`, `compare`, `screen`, `options`, JP listings | Unofficial community endpoint; delayed data |
 | Polymarket (Gamma API) | `fomc odds` | Public prediction-market API, no auth |

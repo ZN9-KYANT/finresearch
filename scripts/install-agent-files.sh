@@ -8,6 +8,7 @@
 #   pi               -> AGENTS.md at repo root
 #   Hermes           -> AGENTS.md at repo root (cron/workdir context loading)
 #   Claude Code      -> CLAUDE.md at repo root  (symlink -> AGENTS.md, keeps one source)
+#                       + .claude/skills/finresearch (project skill -> skills/finresearch)
 #   Cursor & friends -> .cursor/rules/finresearch.mdc (alwaysApply rule that
 #                       points at AGENTS.md; agents.md ecosystem covers the rest)
 #
@@ -43,6 +44,8 @@ echo "  AGENTS.md             read natively by: codex, grok, pi, hermes"
 
 # Claude Code
 link AGENTS.md CLAUDE.md
+mkdir -p .claude/skills
+link ../../skills/finresearch .claude/skills/finresearch
 
 # Cursor (and other rule-loader agents that want a rules dir)
 mkdir -p .cursor/rules
@@ -51,9 +54,11 @@ cat > .cursor/rules/finresearch.mdc <<'EOF'
 description: finresearch agent guidance (canonical source: AGENTS.md)
 alwaysApply: true
 ---
-Read and follow AGENTS.md at the repository root: project overview, setup and
-verify commands, architecture map, unit contracts (percent-coded scan filters,
-currency threading, EDGAR UA rule), commit conventions, and known weak spots.
+Read and follow AGENTS.md at the repository root: how to use the tool, project
+overview, setup and verify commands, architecture map, unit contracts
+(percent-coded scan filters, currency threading, EDGAR UA rule), the output
+contract, commit and release conventions, and known weak spots. The complete
+usage guide for the CLI is skills/finresearch/SKILL.md.
 EOF
 echo "  wrote   .cursor/rules/finresearch.mdc (points at AGENTS.md)"
 linked=$((linked + 1))

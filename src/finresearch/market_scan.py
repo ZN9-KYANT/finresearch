@@ -2,7 +2,7 @@
 
 Unlike `screen` (which filters a user-supplied ticker list), `scan` queries the
 entire market server-side (yfinance.screener: EquityQuery + screen) — no 10k-ticker
-looping. ~90 fields supported (price/vol/PE/PEG/margins/growth/roe/short-%float/
+looping. 24 filter fields (price/vol/PE/PEG/margins/growth/roe/short-%float/
 days-to-cover/institutional %/dividend yield/debt/liquidity + region/sector/industry).
 
 UNIT CONTRACT (verified live): ratio fields arrive in PERCENT — netincomemargin

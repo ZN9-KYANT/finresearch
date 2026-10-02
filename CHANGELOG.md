@@ -3,6 +3,29 @@
 All notable changes to finresearch. Format follows
 [Keep a Changelog](https://keepachangelog.com); versions are semver.
 
+## [1.1.1] — 2026-10-02
+
+Documentation release for agents and Japanese users: an Agent Skills guide
+to the whole tool, a reorganized AGENTS.md, and Japanese README/CHANGELOG.
+No behaviour changes.
+
+### Added
+- `skills/finresearch/SKILL.md`: an Agent Skills guide that teaches an agent the
+  whole tool — which command answers which question, workflows, units and data
+  caveats, the output contract. Linked as a project skill at
+  `.claude/skills/finresearch`; `scripts/install-agent-files.sh` creates the link.
+- Japanese documentation: `README.ja.md` and `CHANGELOG.ja.md`.
+- `tests/test_docs.py`: every command must appear in the skill and in
+  `docs/JSON.md`, and the Japanese changelog must list every release.
+
+### Docs
+- `AGENTS.md` reorganized into Part A (agents using the tool: calling contract,
+  command map, units, etiquette) and Part B (working on the repo), plus a
+  release process (every version gets a GitHub Release).
+- Corrected counts in README and the 1.0.0 entry: 54 FRED aliases (was "56"),
+  24 `scan` filter fields (was "~90"), 59 Yahoo regions (was "58"); added
+  `beta`, `pb`, and `perf-52w` to the README's scan field table.
+
 ## [1.1.0] — 2026-10-02
 
 Full machine-readable output: every command now speaks JSON, and every command
@@ -62,9 +85,9 @@ CLI built and battle-tested over months of daily use.
   the listing currency, fundamentals in the reporting currency (JP tickers
   render in ¥; ADRs like TSM show USD prices and TWD financials).
 - **Full-market scanning** (`scan`): server-side filtering of the entire
-  market across ~90 fields via Yahoo's screener engine — price/mktcap ranges,
+  market across 24 filter fields via Yahoo's screener engine — price/mktcap ranges,
   volume, margins, growth, ROE, short interest, institutional/insider %,
-  dividends, debt, Altman Z, beta, P/B, 52w performance; 58 regions
+  dividends, debt, Altman Z, beta, P/B, 52w performance; 59 regions
   (`jp` native); named scan templates (`scan myscan`) saved in
   `~/.config/finresearch/scans.toml`; 52w-extreme post-filters
   (`--within-high/--below-high/--off-low`).

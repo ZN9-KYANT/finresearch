@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "finresearch"
-version = "1.1.0"
+version = "1.1.1"
 description = "Financial Research Toolkit — free, open-source CLI for stock fundamentals (yfinance), SEC EDGAR (insider Form 4, 13F, 13D/G, S-3/424B, buybacks, 8-K events), FTD fails, FINRA short interest, options flow, full-market scanning with saved scan templates, FRED macro, FOMC analysis + market-implied odds, and premarket gappers. JP listings supported."
 readme = "README.md"
 license = {text = "MIT"}
