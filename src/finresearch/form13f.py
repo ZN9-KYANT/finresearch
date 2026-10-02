@@ -21,6 +21,7 @@ Commands:
 import functools
 import json
 import math
+import sys
 import urllib.parse
 import xml.etree.ElementTree as ET
 
@@ -288,7 +289,7 @@ def cmd_13f(args):
         if not cik:
             print(f"Unknown holder: {args.holder} (pass a ticker or 10-digit CIK)")
             return
-        print(f"Fetching latest 13F-HR for {title} ({cik}) ...")
+        print(f"Fetching latest 13F-HR for {title} ({cik}) ...", file=sys.stderr)
         data = fetch_holder_holdings(cik)
         if not data:
             print("No holdings table found in the latest filing.")

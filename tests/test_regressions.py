@@ -216,3 +216,18 @@ class TestUnits:
         from finresearch.yfinance_cmd import _safe
         assert _safe(pd.NA) is None and _safe(pd.NaT) is None
         assert _fmt("shares", _safe(pd.NA), "USD", "USD") == "N/A"
+
+
+class TestJsonStdoutIsPure:
+    def test_13f_holder_json_has_no_progress_text_on_stdout(self, monkeypatch, capsys):
+        import json
+
+        from finresearch import form13f
+        monkeypatch.setattr(form13f, "_resolve_holder", lambda h: ("0000000001", "TEST FUND"))
+        monkeypatch.setattr(form13f, "fetch_holder_holdings", lambda cik: {
+            "accession": "a", "filed": "2099-01-01", "period": "2098-12-31",
+            "value_scale": {"factor": 1, "reason": "test"}, "rows": []})
+        form13f.cmd_13f(SimpleNamespace(subcommand="holder", holder="TEST", json=True, top=5))
+        out = capsys.readouterr()
+        assert json.loads(out.out)["filed"] == "2099-01-01"
+        assert "Fetching" in out.err

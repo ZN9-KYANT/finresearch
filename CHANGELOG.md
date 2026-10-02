@@ -3,6 +3,20 @@
 All notable changes to finresearch. Format follows
 [Keep a Changelog](https://keepachangelog.com); versions are semver.
 
+## [Unreleased]
+
+### Fixed
+- `13f holder --json`: the "Fetching latest 13F-HR…" progress line went to stdout
+  and broke JSON parsing; it now goes to stderr like every other diagnostic.
+
+### Docs
+- README: "Built for agents and automation" — the machine contract (JSON on
+  stdout, diagnostics on stderr, non-interactive, keyless, per-job config),
+  tool-calling and cron recipes, jq pipelines, and rate etiquette for
+  unattended runs. Corrected which settings can come from a `.env` file
+  (`FRED_API_KEY` only; `FINRA_API_KEY` and `FINRESEARCH_SEC_UA` are
+  environment-only).
+
 ## [1.0.0] — 2026-10-02
 
 First public release. A free, portable, no-broker-lock-in financial research

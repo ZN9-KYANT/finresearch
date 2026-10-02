@@ -2,14 +2,22 @@
 
 [License: MIT](LICENSE) · Python 3.10+ · CI: see `.github/workflows/ci.yml`
 
-**A free, open-source financial research CLI** — US stocks fundamentals, SEC EDGAR
-structured data, insider Form 4 filings, institutional 13F holdings, FRED macro data,
-FOMC statement analysis, and premarket gappers. The open-source alternative to paid
-AI financial-data APIs.
+**Financial research built for AI agents and research automation.** finresearch is
+a free, open-source CLI designed first to be driven by AI agents, cron jobs, and
+scripts, and second by people at a terminal. It never prompts, works without API
+keys by default, writes JSON to stdout and diagnostics to stderr, and stays polite
+to every upstream API when nobody is watching.
 
-Everything is fetched from official public sources (SEC EDGAR, FRED, Federal Reserve)
-or free community endpoints (Yahoo Finance via yfinance). No paid API keys. JSON
-output throughout for scripting, agents, and pipelines.
+It covers fundamentals for US and Japanese listings, SEC EDGAR filings (insider
+Form 4, 13F, 13D/G, S-3/424B, buybacks, 8-K), FINRA short interest, SEC
+fails-to-deliver, options flow, FRED macro, FOMC statements with market-implied
+rate odds, full-market screening, and premarket gappers. Everything comes from
+official public sources (SEC EDGAR, FRED, Federal Reserve, FINRA) or free community
+endpoints (Yahoo Finance via yfinance). No paid API keys. The open-source
+alternative to paid AI financial-data APIs.
+
+→ Jump to [Built for agents and automation](#built-for-agents-and-automation) for the
+machine contract, tool-calling and cron recipes.
 
 ## Highlights
 
@@ -76,10 +84,114 @@ EOF
 echo "FRED_API_KEY=yourkey" > ~/.config/finresearch/.env && chmod 600 ~/.config/finresearch/.env
 ```
 
-Without a watchlist file, list commands run on a small neutral demo set. `FRED_API_KEY`
-(or the generic `FINRESEARCH_SEC_UA` override) can also come from the process
-environment or a `.env` in the current directory. `FINRA_API_KEY` (free,
-https://finra.org/finra-data) unlocks current short-interest data in the same ways.
+Without a watchlist file, list commands run on a small neutral demo set.
+`FRED_API_KEY` is read from the environment, `~/.config/finresearch/.env`, or a
+`.env` in the current directory. `FINRA_API_KEY` (free, https://finra.org/finra-data,
+unlocks current short-interest data) and `FINRESEARCH_SEC_UA` are read from the
+environment only. `FINRESEARCH_CONFIG_DIR` relocates the whole config directory.
+
+## Built for agents and automation
+
+finresearch is meant to be a tool that an agent calls or a scheduler runs
+unattended. These are the guarantees it makes to that caller:
+
+| Contract | What it means for an agent, script, or cron job |
+|---|---|
+| **Non-interactive** | No prompts, no pagers, no TTY assumptions. Safe under cron, CI, systemd/launchd timers, and tool-calling harnesses. |
+| **JSON on stdout** | 21 data commands take `--json` (`gappers` takes `--format json`). stdout is then a single JSON document; progress lines, warnings, and `[skip]` notices go to stderr. |
+| **Empty is not an error** | "Nothing found" comes back as valid JSON (`[]`, `{"results": []}`), so `jq -e 'length > 0'` makes a clean alert condition. |
+| **Raw values, explicit units** | JSON carries unformatted numbers. `ticker --json` names its `currency` (listing) and `financial_currency` (reporting). Unit contracts (percent vs fraction, 13F value units) are documented in [`AGENTS.md`](AGENTS.md). |
+| **Keyless by default** | Every command except `fred` runs with zero setup. Optional keys come from the environment, so they fit secret managers and crontab env lines. |
+| **Per-job isolation** | `FINRESEARCH_CONFIG_DIR=/path/to/job` gives each agent or job its own watchlist, scan templates, and `.env`. |
+| **Saved queries** | An agent designs a screen once (`scan NAME --save`); a cron job reruns it by name indefinitely (`scan NAME --json`). |
+| **Self-describing** | `finresearch --help` and `<command> --help` at every level, so agents can discover the tool surface; `--version` lets pipelines pin behaviour. |
+| **Polite when unattended** | One paced fetcher keeps SEC traffic under 10 req/s with a declared User-Agent. FRED fetches only the observations it shows. 8-K item codes come from one feed request, not per-filing downloads. |
+
+Human-oriented commands (markdown only for now): `sec`, `compare`, `transcript`,
+`fred dashboard | list | yield_curve`, `fomc calendar | sentiment`, and
+`13f who | diff`.
+
+### Calling it from an agent
+
+Any agent framework that can run a shell command or a subprocess can use it as a
+tool. A minimal Python wrapper:
+
+```python
+import json, subprocess
+
+def finresearch(*args):
+    """Run a finresearch command and return its parsed JSON (stderr = diagnostics)."""
+    proc = subprocess.run(["finresearch", *args, "--json"],
+                          capture_output=True, text=True, check=True, timeout=300)
+    return json.loads(proc.stdout)
+
+trades = finresearch("insider", "scan", "--tickers", "NVDA,AMD,MU", "--days", "7")
+movers = finresearch("scan", "--day-chg-min", "5", "--volume-min", "5000000")
+```
+
+Give the agent `finresearch --help` (or this README) as the tool description; each
+subcommand's `--help` lists its flags and units.
+
+### Scheduled research (cron)
+
+It's just a command, so cron, systemd timers, launchd, GitHub Actions schedules,
+or an agent's own scheduler all work. Cron runs with a minimal environment: use
+absolute paths, set keys as crontab variables, and escape `%` as `\%`.
+
+```cron
+# Times are this machine's local time (these examples assume US/Eastern market hours).
+FR=/home/you/finresearch/.venv/bin/finresearch
+OUT=/home/you/research
+FINRESEARCH_SEC_UA=my-research-bot/1.0 you@example.com
+
+# 08:45 Mon–Fri: premarket gappers (each run is also saved to ~/.cache/finresearch/gappers/)
+45 8 * * 1-5  $FR gappers --format json > $OUT/gappers-$(date +\%F).json 2>> $OUT/cron.log
+
+# 18:30 Mon–Fri: open-market insider buys/sells across the watchlist
+30 18 * * 1-5 $FR insider scan --days 1 --json > $OUT/insiders-$(date +\%F).json 2>> $OUT/cron.log
+
+# 07:00 daily: alert only when an auditor change (4.01) or non-reliance (4.02) 8-K lands
+0 7 * * *     $FR 8k NVDA,AMD,MU --days 1 --has 4.01,4.02 --json | jq -e 'length > 0' >/dev/null && echo "restatement-risk 8-K filed" | mail -s finresearch you@example.com
+
+# 07:15 daily: market-implied FOMC odds snapshot
+15 7 * * *    $FR fomc odds --json > $OUT/fomc-odds-$(date +\%F).json 2>> $OUT/cron.log
+
+# Sundays 10:00: rerun a saved full-market screen (quality-dip ships in examples/scans.toml)
+0 10 * * 0    $FR scan quality-dip --json > $OUT/quality-dip-$(date +\%F).json 2>> $OUT/cron.log
+```
+
+### Pipelines (jq)
+
+```bash
+finresearch scan quality-dip --json | jq -r '.results[].symbol'          # tickers for the next step
+finresearch insider scan --days 14 --json \
+  | jq -r '.[] | select(.transactions | length > 0) | "\(.ticker): \(.transactions | length) trades"'
+finresearch gappers --format json --no-catalyst | jq -r '.gappers[] | "\(.symbol) \(.premarket_gap_pct)%"'
+finresearch fomc odds --limit 1 --json \
+  | jq -r '.[0] | "\(.meeting): " + ([.buckets | to_entries[] | "\(.key) \(.value*100|round)%"] | join(", "))'
+```
+
+### Rate etiquette for unattended runs
+
+- **SEC EDGAR** is paced internally (≤10 req/s). For scheduled or heavy use, set
+  `FINRESEARCH_SEC_UA` to a real contact so SEC can reach you instead of
+  blocking you. Keep `insider`/`13f` back-scans to a modest `--days`.
+- **FRED** allows 120 requests/minute. A full `fred dashboard` uses about 40, so
+  don't run it more than about once a minute.
+- **Yahoo-backed commands** (`ticker`, `compare`, `screen`, `scan`, `options`) use
+  an unofficial endpoint that is rate-sensitive. Schedule them, don't loop them,
+  and space jobs a few minutes apart.
+
+### Coding agents working on this repo
+
+`AGENTS.md` at the root carries the guidance every coding agent should follow:
+setup, verify gates, architecture, and unit contracts. It is read natively by
+Codex, Grok, pi, and Hermes; Claude Code reads `CLAUDE.md`, a symlink to it. One
+command links everything for a fresh clone:
+
+```bash
+./scripts/install-agent-files.sh   # links CLAUDE.md, writes .cursor rule
+```
 
 ## Ownership & flow commands (SEC EDGAR)
 
@@ -291,7 +403,8 @@ finresearch scan --day-chg-min 5 --volume-min 5000000 --sort day-chg
 Notes: results up to 250 per call (Yahoo page cap) and the true total match
 count is always printed; data is Yahoo (unofficial, delayed). Under the hood it
 is yfinance's screener engine, so no API key is needed — but it shares Yahoo's
-rate sensitivity, keep it to interactive use (crons: add spacing).
+rate sensitivity: scheduled runs are fine, tight loops are not (see
+[rate etiquette](#rate-etiquette-for-unattended-runs)).
 
 #### Named scan templates (save your scans)
 
@@ -382,9 +495,9 @@ investment advice, and not a market-data Redistribution service: keep fetched da
 inside your own analysis, don't republish or resell provider data. All sources are
 accessed through their documented public surfaces at compliant rates.
 
-`SEC EDGAR` fair-access requires a declared contact string; set
-`FINRESEARCH_SEC_UA="your-tool/1.0 contact@example.com"` when running heavily, or
-accept the default which points at this repo.
+`SEC EDGAR` fair-access requires a declared contact string. The default User-Agent is
+`finresearch/<version> contact@example.com`; set
+`FINRESEARCH_SEC_UA="your-tool/1.0 you@yourdomain.com"` for scheduled or heavy use.
 
 ## Tests & CI
 
@@ -395,17 +508,8 @@ ruff check src/ tests/
 ```
 
 CI runs tests + ruff + a gitleaks secret scan on every push/PR (Python 3.10 and 3.12).
-
-### Codex / Claude Code / Grok / pi / Hermes
-
-This repo is agent-first: `AGENTS.md` at the root carries the project guidance
-every coding agent should follow (setup, verify gates, architecture, unit
-contracts). Claude Code reads `CLAUDE.md`, provided as a symlink to
-`AGENTS.md`. One command links everything for a fresh clone:
-
-```bash
-./scripts/install-agent-files.sh   # links CLAUDE.md, writes .cursor rule
-```
+Contributing with a coding agent? See
+[Coding agents working on this repo](#coding-agents-working-on-this-repo).
 
 ## License
 

@@ -37,7 +37,7 @@ uv pip install --python .venv/bin/python -e ".[dev]"   # after fresh clone: pyth
 ## Verify commands (run before every commit)
 
 ```bash
-.venv/bin/python -m pytest tests/ -q          # 117 tests, ~1s — must be 100%
+.venv/bin/python -m pytest tests/ -q          # 118 tests, ~1s — must be 100%
 .venv/bin/python -m ruff check src/ tests/    # must be: All checks passed!
 gitleaks git -v .                             # must be: no leaks found
 ./scripts/privacy-sweep.sh                    # must print: SWEEP CLEAN (or SKIP w/o config)
